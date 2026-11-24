@@ -59,61 +59,138 @@ define(['./jj_cm_charge_master_rafmo105'],
          * @since 2015.2
          */
         const beforeSubmit = (scriptContext) => {
-            log.audit('PO making charge UE fired', 'type: ' + scriptContext.type);
-            if (['create', 'edit', 'copy'].indexOf(scriptContext.type) === -1) return;
-            try {
-                let rec = scriptContext.newRecord;
-                let vendorId = rec.getValue({ fieldId: 'entity' });
-                let tranDate = rec.getValue({ fieldId: 'trandate' });
-                let currencyId = rec.getValue({ fieldId: 'currency' });
-                log.audit('PO header values', JSON.stringify({
-                    vendor: vendorId, date: String(tranDate), currency: currencyId,
-                    lines: rec.getLineCount({ sublistId: 'item' })
-                }));
-                if (!vendorId || !tranDate) return;
 
-                let cache = {};
-                let lineCount = rec.getLineCount({ sublistId: 'item' });
-                for (let i = 0; i < lineCount; i++) {
-                    let itemId = rec.getSublistValue({
+    log.audit('PO making charge UE fired', 'type: ' + scriptContext.type);
+
+    if (['create', 'edit', 'copy'].indexOf(scriptContext.type) === -1) {
+        return;
+    }
+
+    try {
+
+        let rec = scriptContext.newRecord;
+
+        let vendorId = rec.getValue({
+            fieldId: 'entity'
+        });
+
+        let tranDate = rec.getValue({
+            fieldId: 'trandate'
+        });
+
+        let currencyId = rec.getValue({
+            fieldId: 'currency'
+        });
+
+        log.audit('PO header values', JSON.stringify({
+            vendor: vendorId,
+            date: String(tranDate),
+            currency: currencyId,
+            lines: rec.getLineCount({
+                sublistId: 'item'
+            })
+        }));
+
+        if (!vendorId || !tranDate) {
+            log.audit(
+                'Making Charge Skipped',
+                'Vendor or Transaction Date is missing'
+            );
+            return;
+        }
+
+        let cache = {};
+
+        let lineCount = rec.getLineCount({
+            sublistId: 'item'
+        });
+
+        for (let i = 0; i < lineCount; i++) {
+
+            let itemId = rec.getSublistValue({
+                sublistId: 'item',
+                fieldId: 'item',
+                line: i
+            });
+
+            if (!itemId) {
+                continue;
+            }
+
+            if (!cache[itemId]) {
+                cache[itemId] = lib.computeLineRate(
+                    itemId,
+                    vendorId,
+                    tranDate,
+                    currencyId
+                );
+            }
+
+            let result = cache[itemId];
+
+            if (result.status === 'OK') {
+
+                let quantity = lib.num(
+                    rec.getSublistValue({
                         sublistId: 'item',
-                        fieldId: 'item',
+                        fieldId: 'quantity',
                         line: i
-                    });
-                    if (!itemId) continue;
+                    })
+                );
 
-                    if (!cache[itemId]) {
-                        cache[itemId] = lib.computeLineRate(itemId, vendorId, tranDate, currencyId);
-                    }
-                    let result = cache[itemId];
+                let amount = lib.round(result.rate * quantity);
 
-                    if (result.status === 'OK') {
-                        let quantity = lib.num(rec.getSublistValue({
-                            sublistId: 'item',
-                            fieldId: 'quantity',
-                            line: i
-                        }));
-                        rec.setSublistValue({
-                            sublistId: 'item',
-                            fieldId: 'rate',
-                            line: i,
-                            value: result.rate
-                        });
-                        rec.setSublistValue({
-                            sublistId: 'item',
-                            fieldId: 'amount',
-                            line: i,
-                            value: lib.round(result.rate * quantity)
-                        });
-                    } else {
-                        log.audit('PO line not auto-priced',
-                            'Line ' + (i + 1) + ', item ' + itemId + ': ' + result.status + ' - ' + (result.message || ''));
-                    }
-                }
-            } catch (e) {
-                log.error('error @ beforeSubmit', (e && e.name) + ': ' + (e && e.message) + ' | ' + (e && e.stack));
+                rec.setSublistValue({
+                    sublistId: 'item',
+                    fieldId: 'rate',
+                    line: i,
+                    value: result.rate
+                });
+
+                rec.setSublistValue({
+                    sublistId: 'item',
+                    fieldId: 'amount',
+                    line: i,
+                    value: amount
+                });
+
+                log.audit(
+                    'Rate Applied',
+                    JSON.stringify({
+                        line: i + 1,
+                        item: itemId,
+                        quantity: quantity,
+                        rate: result.rate,
+                        amount: amount
+                    })
+                );
+
+            } else {
+
+                log.audit(
+                    'PO line not auto-priced',
+                    JSON.stringify({
+                        line: i + 1,
+                        item: itemId,
+                        status: result.status,
+                        message: result.message || ''
+                    })
+                );
             }
         }
+
+    } catch (e) {
+
+        log.error(
+            'error @ beforeSubmit',
+            (e && e.name) +
+            ': ' +
+            (e && e.message) +
+            ' | ' +
+            (e && e.stack)
+        );
+    }
+};
 
         /**
          * Defines the function definition that is executed after record is submitted.
