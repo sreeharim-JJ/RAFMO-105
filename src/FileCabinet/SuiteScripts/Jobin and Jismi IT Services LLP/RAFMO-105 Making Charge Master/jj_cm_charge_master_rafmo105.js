@@ -34,7 +34,7 @@
  *               Helpers num(), round() and toDateStr() are also exported.
  *
  * Usage :
- *   define(['./jj_lib_making_charge'], (lib) => {
+ *   define(['./jj_cm_charge_master_rafmo105'], (lib) => {
  *       const result = lib.computeLineRate(itemId, vendorId, new Date(), currencyId);
  *       if (result.status === 'OK') { ... result.rate ... }
  *   });
